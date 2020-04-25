@@ -9,6 +9,7 @@
 #include <ShiftRegister74HC595.h>
 #include <Bounce2.h>
 #include <TimeLib.h>
+#include <thermistor.h>
 #include "Constants.h"
 #include "Relay.h"
 #include "DailySchedule.h"
@@ -37,6 +38,9 @@ struct PoolController
     OneWire one_wire;
     DallasTemperature digital_temp_sensors;
 
+    //Analog thermistor tracker
+    Thermistor* analog_temp;
+
     //Relays to control equipment
     //NOTE: These are just state trackers, not 
     //      actual I/O objects
@@ -57,7 +61,7 @@ struct PoolController
     TimeState time_state;
 
     //Error code Tracker
-    Pool_Error_Code error[MAX_POOL_ERRORS];
+    Pool_Error_Code pool_errors[MAX_POOL_ERRORS];
     int num_errors;
 
     //Pool state tracking
@@ -65,6 +69,7 @@ struct PoolController
     PoolState pool_state;
 
     //Solar heating state tracking
+    byte solar_enabled;
     SolarState solar_state;
     float solar_target_temp;
 
@@ -77,11 +82,11 @@ struct PoolController
     PoolController(RemoteDebug* debug);
   
     //Load flash default config (initial hardcoded values)
-    void populate_defaults();
+    //NOTE: defaults are saved to SPIFFS after
+    void reset_config();
 
     //JSON Config file save/load/reset
     byte save_config ();
-    void reset_config ();
     byte load_config ();
 
     //Main loop updated method for updating the pool states
@@ -108,9 +113,9 @@ struct PoolController
     //and update our internal name-listing
     void update_temperature_sensors();
 
-    //Update the analog pool sensors presence and reading (set error
-    //state if it seems disconnected or something)
-    void update_analog_sensor();
+    //Update the state of the solar heating based on temperatures, 
+    //activation settings and the pump running.
+    void update_solar_heating();
 
     //Update the relay states based on the sensors, time, ntp state
     //and manual control status (manual control means we turn everything off
@@ -142,9 +147,10 @@ struct PoolController
 
     void assignSensorRole(String name, String role);
 
+    TempSensor* getSensorByName(String name);
     String getSensorRole(String name);
 
-    int getRelayIndexByName(String& name);
+    Relay* getRelayByName(String name);
     byte parseDailySchedule(PoolDailySchedule& d, JsonArray& schedule,String& err);
 
     byte connect_wifi(String ssid, String pw);
@@ -153,21 +159,29 @@ struct PoolController
 
     //Relay names/schedules (loading_config is flag for loading from internal config)
     byte setJSONRelayDetails(JsonArray& relays, String& err, byte loading_config = 0);
-    DynamicJsonDocument getJSONRelayDetails();
+    //DynamicJsonDocument getJSONRelayDetails();
+    void getJSONRelayDetails(DynamicJsonDocument& info);
  
     //Temp Sensors
     byte validateJSONSensorsUpdate(JsonArray& sensors);
-    DynamicJsonDocument getJSONSensorsDetails();
+    //DynamicJsonDocument getJSONSensorsDetails();
+    void getJSONSensorsDetails(DynamicJsonDocument& info);
     byte setJSONSensorsDetails(JsonArray& sensors, String& err, byte loading_config = 0); 
 
     //Wifi/NTP (ssid, password, ntp server/interval, UTC offset)
-    DynamicJsonDocument getJSONWifiDetails();
+    //DynamicJsonDocument getJSONWifiDetails();
+    void getJSONWifiDetails(DynamicJsonDocument& info);
     byte setJSONWifiDetails(JsonObject& wifi, String& err, byte loading_config = 0);
-    //TODO: AP mode stuff 
-    
-    //Pins (relays, manual mode switch, analog sensor use, 1-wire bus pin)
-    DynamicJsonDocument getJSONHardwareDetails();
-    byte setJSONHardwareDetails(DynamicJsonDocument& hardware, String& err, byte loading_config = 0);
+
+    //Solar heating settings
+    //DynamicJsonDocument getJSONSolarDetails();
+    void getJSONSolarDetails(DynamicJsonDocument& info);
+    byte setJSONSolarDetails(JsonObject& solar, String& err, byte loading_config = 0);
+
+    //General settings/mode settings
+    //DynamicJsonDocument getJSONGeneralDetails();
+    void getJSONGeneralDetails(DynamicJsonDocument& info);
+    byte setJSONGeneralDetails(JsonObject& general, String& err, byte loading_config = 0);
 
   
 };

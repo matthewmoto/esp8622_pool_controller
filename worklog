@@ -1,20 +1,7 @@
 BRAIN_STACK:
   * LEFT-OFF:
-    - You left this thing in a "rougly working" state, let's hit the TODO list below
-  
+ 
 TODO:
-  * Time Stuff:
-    * add a thing where we don't trust our schedule when our NTP state isn't good (either not good or hasn't been updated in 24 hours (or some magic))
-    * make a state for manually step time (don't update with ntp)
-    * Create a time-of-day parser for JSON input (to deal with schedules)
-    * Deal with timezones and daylight savings
+  * Save/Load issue (everything seems to go back to defaults on reboot rather than loading the config...)
 
-  * Introduce roles for relays as well (include this in the name setting thing I guess)  
-    (so we can treat solar/pump specially)
-
-  * add target temp for solar valve (getter/setter) and integrate into the control loop for relays
-
-  * implement OTA (both firmware and filesystem) and start using it for debugging 
-  * add hooks to read analog temp sensor
-
-  * Include modal AP vs STA operating modes for setup
+  * test OTA with SPIFFS stuff

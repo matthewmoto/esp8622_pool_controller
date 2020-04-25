@@ -40,6 +40,28 @@
 
 #define POOL_TEMP_SENSOR_MISSING -1.0
 
+/*
+  These two deltas define how much hotter the roof/pool needs
+  to be than the pool to turn the solar on and off when 
+  heating. 
+
+  e.g. 1.0 and -5.0 mean that (when heating):
+    * The roof needs to be 1 degF hotter than the pool 
+      before we turn the solar on
+    * The roof needs to be 5 degF cooler than the pool
+      before we turn the solar off 
+
+  This prevents us from flip/flopping the valve open and 
+  closed a lot when we're near the limit.
+*/
+#define POOL_SOLAR_ON_ROOF_DELTA 1.0 
+#define POOL_SOLAR_OFF_ROOF_DELTA -5.0 
+#define POOL_SOLAR_ON_WATER_DELTA -0.5 //pool turns on only after it hit's -0.5 below setpoint
+#define POOL_SOLAR_OFF_WATER_DELTA 1.0 //ditto for off only after it hits 1 above
+
+#define POOL_SOLAR_MIN_TEMP 65.0
+#define POOL_SOLAR_MAX_TEMP 150.0
+
 //WIFI default data
 static const char DEFAULT_WIFI_CONFIG[] PROGMEM = R"json(
 {
@@ -48,6 +70,18 @@ static const char DEFAULT_WIFI_CONFIG[] PROGMEM = R"json(
     "pw": "REDACTED",
     "ntp_server": "us.pool.ntp.org",
     "tz_offset": -4
+  },
+  "solar":{
+    "target_temp": 90.0,
+    "enabled": "on"
+  },
+  "general":{
+    "mode": "run_schedule",
+    "time": "00:00:00",
+    "last_time_update": 0,
+    "time_status": "n/a",
+    "errors":[],
+    "last_status_update": 0
   },
   "relays":[
     {
@@ -102,10 +136,14 @@ static const char DEFAULT_WIFI_CONFIG[] PROGMEM = R"json(
 #define DEFAULT_UTC_OFFSET -4
 #define DEFAULT_NTP_SERVER "us.pool.ntp.org"
 //#define DEFAULT_NTP_UPDATE_SECS 300
-#define DEFAULT_NTP_UPDATE_SECS 60
+#define DEFAULT_NTP_UPDATE_SECS 120
+
+//Number of hours to distrust our time schedule without
+//an NTP update
+#define TIME_UNRELIABLE_AFTER_HOURS 48
 
 //Ms between updates for the pool controller
-#define POOL_UPDATE_INTERVAL 1000 
+#define POOL_UPDATE_INTERVAL 5000 
 
 //TODO: Figure out which pins we can actually use here
 //      (for all the pins below)
@@ -115,12 +153,18 @@ static const char DEFAULT_WIFI_CONFIG[] PROGMEM = R"json(
 
 //Default thermister pin (only one on the ESP8266)
 #define DEFAULT_ANALOG_THERM_PIN A0
+#define POOL_THERM_SERIES_RES 47000 //series resister (should be 47K)
+#define POOL_THERM_NOM_RES 10000 //resistance at nominal temp (usually 10K)
+#define POOL_THERM_NOM_TEMP_C 25 //Nominal temp C (25C usually)
+#define POOL_THERM_BETA 3950 //Beta
+#define POOL_THERM_NUM_SAMPLES 5 //number of samples to avg
+#define POOL_THERM_SAMPLE_DELAY 20 //ms delay between samples
 
 //switch inputs
 //NOTE: The MODE_PIN controls if we're in AP vs STA mode on the wifi
 //      as well as activating the manual motor/light switches
-#define DEFAULT_MANUAL_MODE_PIN D1
-#define DEFAULT_MANUAL_MODE HIGH
+#define POOL_MANUAL_MODE_PIN D1
+#define POOL_MANUAL_MODE HIGH
 
 //Flipping the manual mode switch 6 times (on -> off or off -> on)
 //in 8 seconds resets the configuration to defaults
@@ -150,8 +194,6 @@ static const char *POOL_RELAY_NAME_STRINGS[] = {POOL_RELAY_PUMP_NAME,
                                                 POOL_RELAY_SPA_DRAIN_NAME,
                                                 POOL_RELAY_SPA_FILL_NAME};
 
-//MS between switching to spa mode and turning the pump back on
-#define POOL_SPA_MODE_PUMP_WAIT 30000
 
 //NOTE: we only use the FAULT_IDLE state if things are so bitched that we don't dare
 //      turn on the pump
@@ -160,13 +202,14 @@ enum PoolState {
   POOL_STATE_MANUAL, //Manual control. AP mode, all relays off (hardware switches)
   POOL_STATE_RUN_SCHEDULE, //Run the schedule on the relays (allows overrides)
   POOL_STATE_IDLE, //Do nothing (relays all off). Just read sensors
+  POOL_STATE_NO_NTP //Same as idle but only because we don't have reliable time, it 
+                    //bounces back to RUN_SCHEDULE when time comes back
 };
 
 enum SolarState {
-  SOLAR_UNINITIALIZED, //Initial state before we ensure the solar sensor is on things are enabled
-  SOLAR_DISABLED,
-  SOLAR_HEATING,
-  SOLOR_BYPASS
+  SOLAR_DISABLED, //solar heating isn't activated
+  SOLAR_HEATING,  //solar heating activated and circulating
+  SOLAR_BYPASS    //solar heating activated, but either the pump is off or the roof is cold
 };
 
 enum TimeState {
@@ -183,8 +226,7 @@ enum Pool_Error_Code {
   POOL_ERR_NO_DIGITAL_TEMP_SENSORS,
   POOL_ERR_ROOF_TEMP_SENSOR_PROBLEM,
   POOL_ERR_AMBIENT_TEMP_SENSOR_PROBLEM,
-  POOL_ERR_POOL_WATER_SENSOR_PROBLEM,
-  POOL_ERR_BOGUS_CONFIG
+  POOL_ERR_POOL_WATER_SENSOR_PROBLEM
 };
 
   
@@ -195,6 +237,36 @@ enum RelayState {
   POOL_RELAY_MANUAL_OFF, //ditto except until the next "on"
 };
 
+static const char POOL_ERR_OK_STR[] = "no error";
+static const char POOL_ERR_NO_NTP_STR[] = "no NTP time";
+static const char POOL_ERR_NO_WIFI_STR[] = "no wifi";
+static const char POOL_ERR_NO_DIGITAL_TEMP_SENSORS_STR[] = "no digital temp sensors";
+static const char POOL_ERR_ROOF_TEMP_SENSOR_PROBLEM_STR[] = "roof (solar) temp sensor problem";
+static const char POOL_ERR_AMBIENT_TEMP_SENSOR_PROBLEM_STR[] = "ambient air temp sensor problem";
+static const char POOL_ERR_POOL_WATER_SENSOR_PROBLEM_STR[] = "pool water temp sensor problem";
+static const char* POOL_ERR_STRINGS[] = {
+  POOL_ERR_OK_STR,
+  POOL_ERR_NO_NTP_STR,
+  POOL_ERR_NO_WIFI_STR,
+  POOL_ERR_NO_DIGITAL_TEMP_SENSORS_STR,
+  POOL_ERR_ROOF_TEMP_SENSOR_PROBLEM_STR,
+  POOL_ERR_AMBIENT_TEMP_SENSOR_PROBLEM_STR,
+  POOL_ERR_POOL_WATER_SENSOR_PROBLEM_STR
+};
+
+
+
+
+static const char POOL_STATE_UNINITIALIZED_STR[] = "uninitialized";
+static const char POOL_STATE_MANUAL_STR[] = "manual_operation";
+static const char POOL_STATE_RUN_SCHEDULE_STR[] = "run_schedule";
+static const char POOL_STATE_IDLE_STR[] = "idle";
+static const char POOL_STATE_NO_NTP_STR[] = "idle (no reliable time source)";
+static const char *POOL_STATE_STRINGS[] = {POOL_STATE_UNINITIALIZED_STR,
+                                           POOL_STATE_MANUAL_STR,
+                                           POOL_STATE_RUN_SCHEDULE_STR,                            
+                                           POOL_STATE_IDLE_STR,
+                                           POOL_STATE_NO_NTP_STR};
 
 //HACK: These ugly things and the table below are a way to get all this string data
 //      in flash memory instead of simply being stuck in RAM (which we need more)
@@ -213,10 +285,10 @@ static const char *TSR_STRINGS[] = {
 };
 
 
-static const char POOL_RELAY_STATE_ON_STR[] PROGMEM = "on";
-static const char POOL_RELAY_STATE_OFF_STR[] PROGMEM = "off";
-static const char POOL_RELAY_STATE_MAN_ON_STR[] PROGMEM = "on (manual)";
-static const char POOL_RELAY_STATE_MAN_OFF_STR[] PROGMEM = "off (manual)";
+static const char POOL_RELAY_STATE_ON_STR[] = "on";
+static const char POOL_RELAY_STATE_OFF_STR[] = "off";
+static const char POOL_RELAY_STATE_MAN_ON_STR[] = "on (manual)";
+static const char POOL_RELAY_STATE_MAN_OFF_STR[] = "off (manual)";
 static const char *POOL_RELAY_STATE_STRINGS[] = {POOL_RELAY_STATE_ON_STR,
                                             POOL_RELAY_STATE_OFF_STR,
                                             POOL_RELAY_STATE_MAN_ON_STR,
