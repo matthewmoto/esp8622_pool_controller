@@ -21,6 +21,7 @@ PoolController::PoolController(RemoteDebug* debug){
   ntp_update_seconds = DEFAULT_NTP_UPDATE_SECS;
   pool_water_sensor_name = "";
   roof_sensor_name = "";
+  ambient_air_sensor_name = "";
 
   //Set up manual mode switch
   pinMode(POOL_MANUAL_MODE_PIN,INPUT);
@@ -54,10 +55,10 @@ PoolController::PoolController(RemoteDebug* debug){
       DEFAULT_POOL_RELAY_SHIFT_DATA,
       DEFAULT_POOL_RELAY_SHIFT_CLK,
       DEFAULT_POOL_RELAY_SHIFT_LATCH);
-  relay_output->setAllLow();
+  relay_output->setAllHigh();
 
   //Attempt to load the config from SPIFFS
-  load_config();
+  //load_config();
 }
 
 void PoolController::reset_config(){
@@ -108,7 +109,22 @@ byte PoolController::save_config(){
   getJSONWifiDetails(config);
   getJSONRelayDetails(config);
   getJSONSensorsDetails(config);
+  getJSONRelayDetails(config);
+  getJSONSensorsDetails(config);
   getJSONSolarDetails(config);
+
+  //Set all relay states to "off" for saving
+  JsonArray relays = config["relays"];
+  for (JsonVariant r: relays){
+    JsonObject relay = r.as<JsonObject>(); 
+    relay["state"]="off"; 
+  }
+
+  /*
+  String nukeme;
+  serializeJsonPretty(config,nukeme);
+  pdebugI("MM:\n%s\n",nukeme.c_str());
+  */
  
   if (serializeJsonPretty(config,configFile) == 0){
     pdebugE("Failed to write configuration to \"%s\"\n",CONFIG_FILE_PATH);
@@ -219,6 +235,12 @@ void PoolController::update_solar_heating(){
     return;
   }
 
+  //reset the solar state for re-evaluation
+  //(since we've already bailed if solar isn't enabled)
+  if (solar_state == SOLAR_DISABLED){
+    solar_state =SOLAR_BYPASS;
+  }
+  
   //Disable logic if we don't find both pump and solar relays
   if (solar_relay == 0 || pump_relay == 0){
     pdebugE("Unable to find both solar and pump relays by name! disabling solar logic!\n");
@@ -250,6 +272,8 @@ void PoolController::update_solar_heating(){
   byte roof_hot_enough = 0;
   byte water_too_cold=0;
 
+  float roof_temp = POOL_TEMP_SENSOR_MISSING;
+
   switch (solar_state){
     case SOLAR_DISABLED: //solar heating isn't activated
       pdebugD("Solar heating is disabled, ensuring our solar relay is off\n");
@@ -257,16 +281,17 @@ void PoolController::update_solar_heating(){
       break;
     case SOLAR_HEATING: //solar heating activated and circulating
       //Turn on the relay
-      solar_relay->state = POOL_RELAY_ON;
+      solar_relay->state = POOL_RELAY_MANUAL_ON;
 
       //If the roof cools off too much or the pump isn't running, close the valve
       //assess the roof
       if (roof_sensor == 0){
-        pdebugW("Warning: Roof sensor not available, reverting to heuristic mode (assuming pump running means it's warm enough to do something)\n");
+        pdebugW("Warning: Roof sensor not available, reverting to heuristic mode\n");
         roof_too_cold = 0;
       }
       else if(roof_sensor->temp < (solar_target_temp + POOL_SOLAR_OFF_ROOF_DELTA)){
         roof_too_cold = 1;
+        roof_temp = roof_sensor->temp;
         pdebugI("Roof temperature (%.2f) is lower than the setpoint (%.2f) + fudge (%.2f)\n",
                  roof_sensor->temp, solar_target_temp, POOL_SOLAR_OFF_ROOF_DELTA);
       }
@@ -282,19 +307,19 @@ void PoolController::update_solar_heating(){
         pdebugI("Solar bypass engaged\n");
         solar_state = SOLAR_BYPASS;
       }
-        
       break;
     case SOLAR_BYPASS: //solar heating activated, but either the pump is off or the roof is cold
       //Turn on the relay
-      solar_relay->state = POOL_RELAY_OFF;
+      solar_relay->state = POOL_RELAY_MANUAL_OFF;
 
       //If the roof cools off too much or the pump isn't running, close the valve
       //assess the roof
       if (roof_sensor == 0){
-        pdebugW("Warning: Roof sensor not available, reverting to heuristic mode (assuming pump running means it's warm enough to do something)\n");
+        pdebugW("Warning: Roof sensor not available, reverting to heuristic mode\n");
         roof_hot_enough = 1;
       }
       else if(roof_sensor->temp > (solar_target_temp + POOL_SOLAR_ON_ROOF_DELTA)){
+        roof_temp = roof_sensor->temp;
         roof_hot_enough = 1;
       }
 
@@ -305,7 +330,7 @@ void PoolController::update_solar_heating(){
 
       if (roof_hot_enough && water_too_cold){
         pdebugI("Roof temperature (%.2f) is hot enough above the setpoint (%.2f) + fudge (%.2f)\n",
-                 roof_sensor->temp, solar_target_temp, POOL_SOLAR_ON_ROOF_DELTA);
+                 roof_temp, solar_target_temp, POOL_SOLAR_ON_ROOF_DELTA);
         pdebugI("Water temperature (%.2f) is below than the setpoint (%.2f) + fudge (%.2f)\n",
                  water_sensor->temp, solar_target_temp, POOL_SOLAR_ON_WATER_DELTA);
         pdebugI("Solar heating engaged\n");
@@ -324,6 +349,32 @@ void PoolController::update_relays(){
 
   pdebugD("PoolController::update_relays() called\n");
 
+  //DEBUG (comment out for production) (hardware debug logic)
+  /*unsigned long now = millis();
+  unsigned long secs = millis() / 1000L;
+ 
+  RelayState onoff = POOL_RELAY_ON;
+  if (secs & 1L){
+    onoff = POOL_RELAY_OFF;
+  } 
+    
+  pdebugI("DEBUG: Updating all relays to be %s\n",POOL_RELAY_STATE_STRINGS[onoff]); 
+  for (int x = 0;x<MAX_RELAY;x++){
+    relays[x].state = onoff;
+  }
+
+  pdebugD("Updating relay outputs: (");
+  for (int x=0;x<MAX_RELAY;x++){
+    pdebugD("%s=%s\n",relays[x].name.c_str(),POOL_RELAY_STATE_STRINGS[relays[x].state]);
+    //NOTE: The relays we're using are active-low
+    relay_output->setNoUpdate(x, (relays[x].state == POOL_RELAY_ON ||
+          relays[x].state == POOL_RELAY_MANUAL_ON) ? LOW : HIGH);
+  }
+  pdebugD(")\n");
+  relay_output->updateRegisters();
+
+  return;*/ 
+  //END DEBUG
 
   switch (pool_state){
     //If we're in manual/idle states, everything turns off. 
@@ -373,12 +424,14 @@ void PoolController::update_relays(){
   }
 
   //If we changed any relay states, update the shift register
-  if (anything_changed){
+  //if (anything_changed){
+  if (1){
     pdebugD("Updating relay outputs: (");
     for (int x=0;x<MAX_RELAY;x++){
       pdebugD("%s=%s\n",relays[x].name.c_str(),POOL_RELAY_STATE_STRINGS[relays[x].state]);
+      //NOTE: The relays we're using are active-low
       relay_output->setNoUpdate(x, (relays[x].state == POOL_RELAY_ON ||
-                                   relays[x].state == POOL_RELAY_MANUAL_ON) ? HIGH : LOW);
+                                   relays[x].state == POOL_RELAY_MANUAL_ON) ? LOW : HIGH);
     }
     pdebugD(")\n");
     relay_output->updateRegisters();
@@ -395,6 +448,10 @@ void PoolController::update()
     pdebugD("update() called with uninitialized PoolController, bailing...\n");
     return;
   }
+
+  //Debounce our manual mode switch (need to call this often regardless of update
+  //interval)
+  manualModeSwitch.update();
 
   //Bail if we just updated the state (restrict updates to a set interval)
   if (now - this->last_update <= POOL_UPDATE_INTERVAL){
@@ -555,18 +612,38 @@ byte PoolController::setJSONRelayDetails(JsonArray& relays, String& err, byte lo
   pdebugI("Got request to update relay schedule\n");
 
   //Make sure the update has the right number of relay elements
-  if (relays.size() != MAX_RELAY){
+  /*if (relays.size() != MAX_RELAY){
     err = "Incorrect number of relays";
     pdebugE("%s\n",err.c_str());
     return 0;
-  }
+  }*/
 
   //Iterate the schedule (validation only)
   PoolDailySchedule sched_buffer;
   JsonArray s;
   String state;
+  String name;
+  Relay* rp = 0;
   for (JsonVariant r : relays){
     JsonObject relay = r.as<JsonObject>(); 
+
+    //Ensure the relay has a name (that's how we find it)
+    if (relay["name"].isNull()){
+        err = "Missing \"name\" field for relay specified";
+        pdebugE("%s\n",err.c_str());
+        return 0;
+    }
+    if (!loading_config){
+      name = relay["name"].as<String>(); 
+      rp = getRelayByName(relay["name"]);
+      if (rp == 0){
+          err = "Relay name specified doesn't match any known relay";
+          pdebugE("%s\n",err.c_str());
+          return 0;
+      }
+    }
+    
+
     //Parse the schedule and check it for sanity
     s = relay["schedule"];
     if (s.isNull()) continue;
@@ -577,10 +654,10 @@ byte PoolController::setJSONRelayDetails(JsonArray& relays, String& err, byte lo
     }  
 
     //Parse the state and check it for sanity
-    state = relay["state"].as<String>(); 
-    if (state != ""){
+    if (!relay["state"].isNull()){
+      state = relay["state"].as<String>(); 
       if (state != "on" && state != "off"){
-        err = "Invalidate \"state\" provided, must be \"on\" or \"off\"";
+        err = "Invalid \"state\" provided, must be \"on\" or \"off\"";
         pdebugE("%s\n",err.c_str());
         return 0;
       }
@@ -593,6 +670,19 @@ byte PoolController::setJSONRelayDetails(JsonArray& relays, String& err, byte lo
   RelayState rstate;
   String name_buff;
   for (JsonVariant relay : relays){
+
+    //Get our internal relay object
+    //NOTE: If we're loading our config, we assume there
+    //      are 8 relays and we're setting them up sequentially
+    if (loading_config){
+      rp = &(this->relays[x]);
+    }
+    //Otherwise, we just match the relays by name
+    else{
+      name = relay["name"].as<String>(); 
+      rp = getRelayByName(relay["name"]);
+    }
+
     //Parse the schedule and update it if present
     s = relay["schedule"];
     if (!s.isNull()){
@@ -600,26 +690,26 @@ byte PoolController::setJSONRelayDetails(JsonArray& relays, String& err, byte lo
       parseDailySchedule(sched_buffer, s, err);
        
       //Update our relay
-      this->relays[x].schedule = sched_buffer;
+      rp->schedule = sched_buffer;
     }
 
     //parse the relay state and update it if present
-    state = relay["state"].as<String>(); 
-    if (state != ""){
+    if (!relay["state"].isNull()){
+      state = relay["state"].as<String>(); 
       //If we're setting states as a config, just turn them on/of
       if (loading_config)
         rstate = (state == "on") ? POOL_RELAY_ON : POOL_RELAY_OFF;
       //Otherwise, note that the state change is a manual override of the schedule
       else
         rstate = (state == "on") ? POOL_RELAY_MANUAL_ON : POOL_RELAY_MANUAL_OFF;
-      this->relays[x].state = rstate;
+      rp->state = rstate;
     }
 
     //If we set to update names (config loading only)
     if (loading_config){
       name_buff = relay["name"].as<String>();
       if (name_buff != ""){
-        this->relays[x].name = name_buff;
+        rp->name = name_buff;
       }
     }
       
@@ -765,7 +855,7 @@ byte PoolController::setJSONSolarDetails(JsonObject& solar, String& err, byte lo
 
   //validate the enabled flag
   if (enabled != "on" && enabled != "off"){
-    err = "Invalidate \"enabled\" provided, must be \"on\" or \"off\"";
+    err = "Invalid \"enabled\" provided, must be \"on\" or \"off\"";
     pdebugE("%s\n",err.c_str());
     return 0;
   }
@@ -818,6 +908,10 @@ void PoolController::assignSensorRole(String name, String role){
 }
     
 TempSensor* PoolController::getSensorByName(String name){
+  if (name == ""){
+    return 0;
+  }
+
   for (int x=0;x<MAX_SENSORS;x++){
     if (temp_sensors[x].name == name){
       return &(temp_sensors[x]);
@@ -867,6 +961,9 @@ byte PoolController::setJSONSensorsDetails(JsonArray& sensors, String& err, byte
       assignSensorRole(name,role);
     }
   }
+
+  //Save a copy of the config
+  save_config();
   
   return 1; 
 }
@@ -902,9 +999,14 @@ void PoolController::update_temperature_sensors(){
   //Update analog thermistor
   pdebugD("Getting analog thermistor value\n");
   float tempF = this->analog_temp->readTempF();
+  //int adc = analogRead(A0);
+  //pdebugD("Thermistor raw (0-1023): %d\n");
   if (tempF < 0.0 || tempF > 212.0){
       pdebugW("Invalid temperator from analog sensor detected (%f), setting it to an error value\n",tempF);
       tempF = POOL_TEMP_SENSOR_MISSING;
+  }
+  else{
+    pdebugI("Analog sensor temp(f): %f\n",tempF);
   }
   addSensor("analog",tempF);
 
@@ -953,9 +1055,11 @@ void PoolController::sendNTPpacket(IPAddress &address)
 
 void PoolController::update_ntp(){
   //Do nothing if we aren't due to ping the server yet and we're already initilized
-  if (time_state != POOL_TIME_UNINITIALIZED &&
-      millis() - this->last_ntp_update < ((unsigned long)(ntp_update_seconds) * 1000L))
+  if (time_state == POOL_TIME_OK &&
+      millis() - this->last_ntp_update < ((unsigned long)(ntp_update_seconds) * 1000L)){
+    //pdebugD("Time state already intialized and it's too soon to do it again, skipping\n");
     return;
+  }
 
   IPAddress ntpServerIP; // NTP server's ip address
 
@@ -1007,11 +1111,10 @@ void PoolController::update_pool_state(){
   //If the manual mode switch is set, go to manual (without question)
   if (pool_state != POOL_STATE_UNINITIALIZED){
     manualModeSwitch.update();
-    if (manualModeSwitch.read()){
+    if (manualModeSwitch.read() == POOL_MANUAL_MODE){
       pdebugI("Manual mode switch activated, switching to manual operating mode\n");
       pool_state = POOL_STATE_MANUAL;
     }
-    return;
   }
 
   //If we don't have a reliable time, switch to IDLE
@@ -1033,7 +1136,7 @@ void PoolController::update_pool_state(){
       break;
     case POOL_STATE_MANUAL:
       manualModeSwitch.update();
-      if (!manualModeSwitch.read()){
+      if (manualModeSwitch.read() != POOL_MANUAL_MODE){
         pdebugI("Manual mode switch deactivated, switching to running the schedule\n");
         pool_state = POOL_STATE_RUN_SCHEDULE;
       }
@@ -1107,12 +1210,14 @@ byte PoolController::isSensorAnalog(const char* name){
   return 0;
 }
 
+
 byte PoolController::addSensor(String name, float temp){
   //bail if we're tracking too many sensors
   if (num_sensors >= MAX_SENSORS){  
     pdebugE("too many temp sensors, ignoring: %s",name.c_str());
     return 0;
   }
+
 
   temp_sensors[num_sensors].name = name;
   temp_sensors[num_sensors].temp = temp;
@@ -1129,6 +1234,9 @@ void PoolController::getJSONGeneralDetails(DynamicJsonDocument& info){
   g["time"] = timebuffer;
   g["last_time_update"] = last_ntp_update;
   g["last_status_update"] = last_update;
+  g["pool_water_sensor_name"] = pool_water_sensor_name;
+  g["roof_sensor_name"] = roof_sensor_name;
+  g["ambient_air_sensor_name"] = ambient_air_sensor_name;
   JsonArray e = g.createNestedArray("errors");
   for (int x = 0 ;x < num_errors;x++){
     e.add(POOL_ERR_STRINGS[pool_errors[x]]);
@@ -1174,6 +1282,10 @@ byte PoolController::setJSONGeneralDetails(JsonObject& general, String& err, byt
     pdebugI("Setting pool to state: %s\n",mode.c_str());
     pool_state = new_state;
   }
+
+  if (!general["pool_water_sensor_name"].isNull()) pool_water_sensor_name=general["pool_water_sensor_name"].as<String>();
+  if (!general["roof_sensor_name"].isNull()) roof_sensor_name=general["roof_sensor_name"].as<String>();
+  if (!general["ambient_air_sensor_name"].isNull()) ambient_air_sensor_name=general["ambient_air_sensor_name"].as<String>();
 
   return 1;
 }

@@ -74,8 +74,35 @@ void handleNotFound(){
   digitalWrite(LED_BUILTIN, 1);*/
 }
 
+void setSensors(){
+  DynamicJsonDocument sched(2048);
+  //pdebugI("MM: \"%s\"\n",SERVER.arg("plain").c_str());
+  DeserializationError error = deserializeJson(sched,SERVER.arg("plain"));
+
+  if (error == DeserializationError::Ok){
+    pdebugD("Successfully parsed schedule update request, submitting to controller\n");
+    String err="";
+    JsonArray sensors = sched["sensors"];
+    byte success = POOL_CONTROLLER.setJSONSensorsDetails(sensors,err);
+
+    if (success == 0){
+      pdebugW("Failed to update JSON sensors details:\n%s\n",err.c_str());
+      SERVER.send(400, "text/plain", err);
+      return;
+    }
+   
+    SERVER.send(200,"text/plain","");
+    return;
+  }
+
+  //If we get here, there is an error with the JSON (either syntax or semnatics)
+  //TODO: More useful error return
+  SERVER.send(400, "text/plain", error.c_str());
+}
+
 void setRelays(){
   DynamicJsonDocument sched(2048);
+  //pdebugI("MM: \"%s\"\n",SERVER.arg("plain").c_str());
   DeserializationError error = deserializeJson(sched,SERVER.arg("plain"));
 
   if (error == DeserializationError::Ok){
@@ -96,8 +123,7 @@ void setRelays(){
 
   //If we get here, there is an error with the JSON (either syntax or semnatics)
   //TODO: More useful error return
-
-  SERVER.send(400, "text/plain", "Invalid JSON");
+  SERVER.send(400, "text/plain", error.c_str());
 }
 
 void getSchedule(){
@@ -274,12 +300,12 @@ void setup()
 {
   SPIFFS.begin();
 
-  POOL_CONTROLLER.load_config();
   //initConfig();
   //loadConfig(&POOL_CONFIG,debug);
   //POOL_CONTROLLER.load_config(&POOL_CONFIG);
 
   Serial.begin(9600);
+
 
   // initialize LED digital pin as an output.
   pinMode(LED_BUILTIN, OUTPUT);
@@ -307,7 +333,8 @@ void setup()
     //SERVER.on("/infojson", HTTP_GET, infoJSONRequest);
     //SERVER.on("/update", HTTP_GET, targetRequest);
     //SERVER.serveStatic("/recipe.html", SPIFFS, "/recipe.html");
-    SERVER.on("/temp",HTTP_GET,tempRequest);
+    SERVER.on("/sensors",HTTP_GET,tempRequest);
+    SERVER.on("/sensors",HTTP_POST,setSensors);
     SERVER.on("/wifi",HTTP_GET,getWifi);
     SERVER.on("/solar",HTTP_GET,getSolar);
     SERVER.on("/solar",HTTP_POST,setSolar);
@@ -359,6 +386,11 @@ void setup()
   });
     //Start our OTA service
     ArduinoOTA.begin();
+
+    //Load the pool controller config
+    //NOTE: We do this here instead of in the constructor because
+    //      we need SPIFFS started first
+    POOL_CONTROLLER.load_config();
 
 }
 

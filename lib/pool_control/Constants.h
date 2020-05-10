@@ -95,6 +95,16 @@ static const char DEFAULT_WIFI_CONFIG[] PROGMEM = R"json(
       "state":"off"
     },
     {
+      "name":"aux_1",
+      "schedule":[],
+      "state":"off"
+    },
+    {
+      "name":"aux_2",
+      "schedule":[],
+      "state":"off"
+    },
+    {
       "name":"solar_valve",
       "schedule":[],
       "state":"off"
@@ -110,17 +120,7 @@ static const char DEFAULT_WIFI_CONFIG[] PROGMEM = R"json(
       "state":"off"
     },
     {
-      "name":"aux_1",
-      "schedule":[],
-      "state":"off"
-    },
-    {
-      "name":"aux_2",
-      "schedule":[],
-      "state":"off"
-    },
-    {
-      "name":"aux_3",
+      "name":"aux_valve_1",
       "schedule":[],
       "state":"off"
     }
@@ -153,8 +153,9 @@ static const char DEFAULT_WIFI_CONFIG[] PROGMEM = R"json(
 
 //Default thermister pin (only one on the ESP8266)
 #define DEFAULT_ANALOG_THERM_PIN A0
-#define POOL_THERM_SERIES_RES 47000 //series resister (should be 47K)
-#define POOL_THERM_NOM_RES 10000 //resistance at nominal temp (usually 10K)
+//#define POOL_THERM_SERIES_RES 47000 //series resister (should be 47K)
+#define POOL_THERM_SERIES_RES 147300 //series resister (should be 47K)
+#define POOL_THERM_NOM_RES 20000 //resistance at nominal temp (usually 10K)
 #define POOL_THERM_NOM_TEMP_C 25 //Nominal temp C (25C usually)
 #define POOL_THERM_BETA 3950 //Beta
 #define POOL_THERM_NUM_SAMPLES 5 //number of samples to avg
@@ -164,7 +165,7 @@ static const char DEFAULT_WIFI_CONFIG[] PROGMEM = R"json(
 //NOTE: The MODE_PIN controls if we're in AP vs STA mode on the wifi
 //      as well as activating the manual motor/light switches
 #define POOL_MANUAL_MODE_PIN D1
-#define POOL_MANUAL_MODE HIGH
+#define POOL_MANUAL_MODE LOW
 
 //Flipping the manual mode switch 6 times (on -> off or off -> on)
 //in 8 seconds resets the configuration to defaults
@@ -173,9 +174,9 @@ static const char DEFAULT_WIFI_CONFIG[] PROGMEM = R"json(
 
 //Relay output pins (defaults)
 #define MAX_RELAY 8 //number of relays for the controller
-#define DEFAULT_POOL_RELAY_SHIFT_CLK D1
-#define DEFAULT_POOL_RELAY_SHIFT_DATA D2
-#define DEFAULT_POOL_RELAY_SHIFT_LATCH D3
+#define DEFAULT_POOL_RELAY_SHIFT_CLK D7
+#define DEFAULT_POOL_RELAY_SHIFT_DATA D5
+#define DEFAULT_POOL_RELAY_SHIFT_LATCH D6
 
 //Relay meanings
 #define POOL_RELAY_PUMP_INDEX 0
