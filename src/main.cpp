@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266WiFiMulti.h>
+#include <ESP8266mDNS.h>
 #include <WiFiClient.h>
 #include <WiFiUdp.h>
 #include <ESP8266WebServer.h>
@@ -248,6 +250,33 @@ void getGeneral(){
     digitalWrite(LED_BUILTIN, 1);
 }
 
+void setWifi(){
+  DynamicJsonDocument sched(256);
+  DeserializationError error = deserializeJson(sched,SERVER.arg("plain"));
+
+  if (error == DeserializationError::Ok){
+    pdebugD("Successfully parsed solar update request, submitting to controller\n");
+    String err="";
+    JsonObject solar = sched.as<JsonObject>();
+    byte success = POOL_CONTROLLER.setJSONWifiDetails(solar,err);
+
+    if (success == 0){
+      pdebugW("Failed to update JSON solar details:\n%s\n",err.c_str());
+      SERVER.send(400, "text/plain", err);
+      return;
+    }
+   
+    SERVER.send(200,"text/plain","");
+    return;
+  }
+
+  //If we get here, there is an error with the JSON (either syntax or semnatics)
+  //TODO: More useful error return
+
+  SERVER.send(400, "text/plain", "Invalid JSON");
+}
+
+
 void setGeneral(){
   DynamicJsonDocument sched(256);
   DeserializationError error = deserializeJson(sched,SERVER.arg("plain"));
@@ -300,10 +329,6 @@ void setup()
 {
   SPIFFS.begin();
 
-  //initConfig();
-  //loadConfig(&POOL_CONFIG,debug);
-  //POOL_CONTROLLER.load_config(&POOL_CONFIG);
-
   Serial.begin(9600);
 
 
@@ -312,19 +337,10 @@ void setup()
   digitalWrite(LED_BUILTIN, 1); //HACK: The LED is reverse biased, we turn it off here 
   //      to spare the LD1117 on the v0.2 board
 
-  //Uncomment to start in AP mode
-  /*WiFi.mode(WIFI_AP_STA);
-    Serial.print("Configuring AP Mode: ");
-    Serial.println(WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0)));
-    Serial.print("Starting softAP: ");
-    Serial.println(WiFi.softAP("RibNet", "muddbutt", 9, false));
-  */
-
   POOL_DEBUG.setSerialEnabled(true);
   POOL_DEBUG.begin("pool_controller");
   POOL_DEBUG.setResetCmdEnabled(true);
 
-    //Uncomment for AP mode stuff
     // if DNSServer is started with "*" for domain name, it will reply with
     // provided IP to all DNS request
     //dnsServer.start(DNS_PORT, "*", apIP);
@@ -335,6 +351,7 @@ void setup()
     //SERVER.serveStatic("/recipe.html", SPIFFS, "/recipe.html");
     SERVER.on("/sensors",HTTP_GET,tempRequest);
     SERVER.on("/sensors",HTTP_POST,setSensors);
+    SERVER.on("/wifi",HTTP_POST,setWifi);
     SERVER.on("/wifi",HTTP_GET,getWifi);
     SERVER.on("/solar",HTTP_GET,getSolar);
     SERVER.on("/solar",HTTP_POST,setSolar);
@@ -348,6 +365,9 @@ void setup()
     SERVER.onNotFound(handleNotFound);
 
     SERVER.begin();
+
+    MDNS.begin(HOSTNAME);
+    MDNS.addService("http","tcp",80);
 
     //DEBUG set to a fake time
     //setTime(0,0,0,1,1,2020);
@@ -385,6 +405,8 @@ void setup()
     }
   });
     //Start our OTA service
+    ArduinoOTA.setPassword(OTA_PASSWORD);
+    ArduinoOTA.setHostname(HOSTNAME);
     ArduinoOTA.begin();
 
     //Load the pool controller config
@@ -394,31 +416,10 @@ void setup()
 
 }
 
-void printDigits(int digits) {
- // utility function for digital clock display: prints preceding colon and leading 0
- Serial.print(":");
- if (digits < 10)
- Serial.print('0');
- Serial.print(digits);
-}
-
-void digitalClockDisplay() {
- // digital clock display of the time
- Serial.print(hour());
- printDigits(minute());
- printDigits(second());
- Serial.print(" ");
- Serial.print(day());
- Serial.print(" ");
- Serial.print(month());
- Serial.print(" ");
- Serial.print(year());
- Serial.println();
-}
-
 void loop()
 {
-    //rdebugVln("Tick in loop...");
+    MDNS.update();
+
     POOL_CONTROLLER.update(); 
     //delay(1000);
 

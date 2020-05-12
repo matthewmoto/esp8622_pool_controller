@@ -1,14 +1,14 @@
 BRAIN_STACK:
+  * Stop trying NTP requests in manual mode
   * LEFT-OFF:
     - Manual reset mode needs to be enabled (maybe we should just use a pin for this?
     - !!!IMPORTANT!!!: need a current limiting resistor on the shift register output when we add the manual pump override switch
-    
 
 
-    - Add temp, on/off logging for the relays (with a reasonable history storage) so we can record/return/clear 
-      the temp of the pool/air/roof and the amount of on-time for the relays for up to a month.
+  
  
 TODO:
-  * Save/Load issue (everything seems to go back to defaults on reboot rather than loading the config...)
+  * Add error state logging/clearing
 
-  * test OTA with SPIFFS stuff
+  * Add temp, on/off logging for the relays (with a reasonable history storage) so we can record/return/clear 
+    the temp of the pool/air/roof and the amount of on-time for the relays for up to a month.

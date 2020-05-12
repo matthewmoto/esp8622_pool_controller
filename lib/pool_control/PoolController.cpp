@@ -312,8 +312,7 @@ void PoolController::update_solar_heating(){
       //Turn on the relay
       solar_relay->state = POOL_RELAY_MANUAL_OFF;
 
-      //If the roof cools off too much or the pump isn't running, close the valve
-      //assess the roof
+      //If the roof cools off too much, we switch to bypassing
       if (roof_sensor == 0){
         pdebugW("Warning: Roof sensor not available, reverting to heuristic mode\n");
         roof_hot_enough = 1;
@@ -458,6 +457,9 @@ void PoolController::update()
     return;
   }
   pdebugD("PoolController::update() running at %lu\n",now);
+
+  //Ensure our wifi state is up to date
+  connect_wifi(wifi_ssid,wifi_pw); 
 
   //update our sensors and switch states
   update_temperature_sensors();
@@ -740,6 +742,7 @@ byte PoolController::connect_wifi(String ssid, String pw){
     case POOL_STATE_MANUAL:
       if (WiFi.getMode() != WIFI_AP_STA){
         WiFi.disconnect();
+        WiFi.hostname(HOSTNAME);
         WiFi.mode(WIFI_AP_STA);
         IPAddress apIP(10, 10, 10, 1);    // Private network for server
         pdebugI("Configuring AP Mode: %d\n",WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0)));
@@ -760,6 +763,7 @@ byte PoolController::connect_wifi(String ssid, String pw){
 
         WiFi.disconnect();
         WiFi.mode(WIFI_STA);
+        WiFi.hostname(HOSTNAME);
         WiFi.begin(ssid.c_str(),pw.c_str());
         unsigned long now = millis();
         // Wait for connection
@@ -792,22 +796,20 @@ byte PoolController::setJSONWifiDetails(JsonObject& wifi, String& err, byte load
   String ssid = wifi["ssid"];
   String pw = wifi["pw"];
 
-  String ntp_server = wifi["ntp_server"];
-  int ntp_tz_offset = wifi["tz_offset"].as<int>();
-
-
   //Attempt to update the NTP settings
-  if (ntp_server != ""){
-    ntp_server_name=ntp_server;
+  if (!wifi["ntp_server"].isNull()){
+    ntp_server_name=wifi["ntp_server"].as<String>();
     time_state = POOL_TIME_UNINITIALIZED;
   }
-  //HACK: assume we aren't ever running in GMT...probably dumb
-  if (ntp_tz_offset != 0){
-    gmt_offset = ntp_tz_offset;
+  //Update the tz_offset if it's set
+  if (!wifi["tz_offset"].isNull()){
+    gmt_offset = wifi["tz_offset"].as<int>();
   }
 
   //Attempt to reconnect using the given details (if we're not in the manual pool state)
-  if (ssid != "" && pw != ""){
+  if (!wifi["ssid"].isNull() &&
+      !wifi["pw"].isNull()){
+  //if (ssid != "" && pw != ""){
     pdebugI("Attempting to update wifi details to SSID: \"%s\" PW: \"%s\"\n",ssid.c_str(),pw.c_str());
     byte connected = connect_wifi(ssid,pw);
     if (connected){ 
@@ -999,8 +1001,8 @@ void PoolController::update_temperature_sensors(){
   //Update analog thermistor
   pdebugD("Getting analog thermistor value\n");
   float tempF = this->analog_temp->readTempF();
-  //int adc = analogRead(A0);
-  //pdebugD("Thermistor raw (0-1023): %d\n");
+  int adc = analogRead(A0);
+  pdebugD("Thermistor raw (0-1023): %d\n",adc);
   if (tempF < 0.0 || tempF > 212.0){
       pdebugW("Invalid temperator from analog sensor detected (%f), setting it to an error value\n",tempF);
       tempF = POOL_TEMP_SENSOR_MISSING;
@@ -1054,6 +1056,12 @@ void PoolController::sendNTPpacket(IPAddress &address)
 }
 
 void PoolController::update_ntp(){
+
+  //if we are in manual mode, don't try to update (we're running a hotspot)
+  if (pool_state == POOL_STATE_MANUAL){
+    return;
+  } 
+
   //Do nothing if we aren't due to ping the server yet and we're already initilized
   if (time_state == POOL_TIME_OK &&
       millis() - this->last_ntp_update < ((unsigned long)(ntp_update_seconds) * 1000L)){
@@ -1146,15 +1154,39 @@ void PoolController::update_pool_state(){
 }
 
 void PoolController::log_error(Pool_Error_Code err){
-  //TODO
   //check if the error is already in the array
+  for (int x=0;x<num_errors;x++){
+    if (pool_errors[x] == err){
+      return;
+    }
+  }
+
+  if (num_errors >= MAX_POOL_ERRORS){  
+    pdebugE("too many pool errors, ignoring %d",err);
+  }
 
   //add it (if we have room)
+  pool_errors[num_errors] = err;
+  num_errors++;
 }
 
 void PoolController::clear_error(Pool_Error_Code err){
-  //TODO
-    //If the error is in the array, clear it out
+  //check if the error is already in the array
+  int remove_index=-1;
+  for (int x=0;x<num_errors;x++){
+    if (pool_errors[x] == err){
+      remove_index=x;
+      break;
+    }
+  }
+
+  //If the error is in the array, clear it out
+  if (remove_index >= 0){
+    for (int x=remove_index; x<num_errors -1 ;x++){
+      pool_errors[x] = pool_errors[x+1];
+    }
+    num_errors--;
+  }
 }
 
 
@@ -1194,9 +1226,10 @@ String PoolController::byteToHex(byte num) {
 }
 
 byte PoolController::isSensorPresent(String name){
-  for (int x=0;x<num_sensors;x++)
+  for (int x=0;x<num_sensors;x++){
     if (temp_sensors[x].name == name)
       return 1;
+  }
   return 0;
 }
 
@@ -1253,7 +1286,7 @@ byte PoolController::setJSONGeneralDetails(JsonObject& general, String& err, byt
     TimeElements t;
     int valid_time = createElements(time.c_str(),&t);
     if (!valid_time){
-      err = "Invalid time string (must be HH:MM:SS 24 hour format)";
+      err = F("Invalid time string (must be HH:MM:SS 24 hour format)");
       pdebugE("%s: passed: \"%s\"\n",err.c_str(),time.c_str());
       return 0;
     }
@@ -1273,7 +1306,7 @@ byte PoolController::setJSONGeneralDetails(JsonObject& general, String& err, byt
   else if (mode == POOL_STATE_IDLE_STR)
     new_state = POOL_STATE_IDLE;
   else{
-    err = "Invalid pool mode passed (only 'run_schedule' and 'idle' accepted)";
+    err = F("Invalid pool mode passed (only 'run_schedule' and 'idle' accepted)");
     pdebugE("%s: passed: \"%s\"\n",err.c_str(),mode.c_str());
     return 0;
   }
@@ -1283,9 +1316,12 @@ byte PoolController::setJSONGeneralDetails(JsonObject& general, String& err, byt
     pool_state = new_state;
   }
 
-  if (!general["pool_water_sensor_name"].isNull()) pool_water_sensor_name=general["pool_water_sensor_name"].as<String>();
-  if (!general["roof_sensor_name"].isNull()) roof_sensor_name=general["roof_sensor_name"].as<String>();
-  if (!general["ambient_air_sensor_name"].isNull()) ambient_air_sensor_name=general["ambient_air_sensor_name"].as<String>();
-
+  //We save/load the sensor role names here since the sensors might not be
+  //present at the time of start/stop (but only for config load/save)
+  if (loading_config){
+    if (!general["pool_water_sensor_name"].isNull()) pool_water_sensor_name=general["pool_water_sensor_name"].as<String>();
+    if (!general["roof_sensor_name"].isNull()) roof_sensor_name=general["roof_sensor_name"].as<String>();
+    if (!general["ambient_air_sensor_name"].isNull()) ambient_air_sensor_name=general["ambient_air_sensor_name"].as<String>();
+  }
   return 1;
 }

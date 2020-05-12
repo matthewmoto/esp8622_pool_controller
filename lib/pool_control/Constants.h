@@ -13,6 +13,9 @@
 #define pdebugW(fmt, ...) if (debug->isActive(debug->WARNING)) 	debug->printf("(%s) " fmt, __func__, ##__VA_ARGS__)
 #define pdebugE(fmt, ...) if (debug->isActive(debug->ERROR)) 		debug->printf("(%s) " fmt, __func__, ##__VA_ARGS__)
 
+#define HOSTNAME "poolio"
+#define OTA_PASSWORD "REDACTED"
+
 #define CONFIG_FILE_PATH "/pool_config.json"
 
 //ms to wait before considering a wifi connection as a failure
@@ -66,7 +69,7 @@
 static const char DEFAULT_WIFI_CONFIG[] PROGMEM = R"json(
 {
   "wifi":{
-    "ssid": "bknet",
+    "ssid": "bknet_EXT",
     "pw": "REDACTED",
     "ntp_server": "us.pool.ntp.org",
     "tz_offset": -4
@@ -153,12 +156,13 @@ static const char DEFAULT_WIFI_CONFIG[] PROGMEM = R"json(
 
 //Default thermister pin (only one on the ESP8266)
 #define DEFAULT_ANALOG_THERM_PIN A0
+#define POOL_THERM_SERIES_RES 150000 //series resister (should be 47K)
 //#define POOL_THERM_SERIES_RES 47000 //series resister (should be 47K)
-#define POOL_THERM_SERIES_RES 147300 //series resister (should be 47K)
-#define POOL_THERM_NOM_RES 20000 //resistance at nominal temp (usually 10K)
+//#define POOL_THERM_SERIES_RES 147300 //series resister (should be 47K)
+#define POOL_THERM_NOM_RES 10000 //resistance at nominal temp (usually 10K)
 #define POOL_THERM_NOM_TEMP_C 25 //Nominal temp C (25C usually)
 #define POOL_THERM_BETA 3950 //Beta
-#define POOL_THERM_NUM_SAMPLES 5 //number of samples to avg
+#define POOL_THERM_NUM_SAMPLES 7 //number of samples to avg
 #define POOL_THERM_SAMPLE_DELAY 20 //ms delay between samples
 
 //switch inputs
