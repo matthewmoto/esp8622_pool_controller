@@ -135,7 +135,7 @@ void getSchedule(){
     DynamicJsonDocument jsonBuffer(100); 
     jsonBuffer["now"] = millis();
     String status;
-    serializeJsonPretty(jsonBuffer, status);
+    serializeJson(jsonBuffer, status);
     SERVER.sendHeader("Access-Control-Allow-Origin", "*");
     SERVER.send(200,"application/json",status);
     digitalWrite(LED_BUILTIN, 1);
@@ -149,7 +149,7 @@ void resetController(){
     jsonBuffer["now"] = millis();
     //jsonBuffer["success"] = (POOL_CONTROLLER.initialized == 1);
     String status;
-    serializeJsonPretty(jsonBuffer, status);
+    serializeJson(jsonBuffer, status);
     SERVER.sendHeader("Access-Control-Allow-Origin", "*");
     SERVER.send(200,"application/json",status);
     digitalWrite(LED_BUILTIN, 1);
@@ -166,7 +166,7 @@ void tempRequest(){
     POOL_CONTROLLER.getJSONSensorsDetails(jsonBuffer); 
     jsonBuffer["now"] = millis();
     String status;
-    serializeJsonPretty(jsonBuffer, status);
+    serializeJson(jsonBuffer, status);
     SERVER.sendHeader("Access-Control-Allow-Origin", "*");
     SERVER.send(200,"application/json",status);
     digitalWrite(LED_BUILTIN, 1);
@@ -179,7 +179,7 @@ void getRelays(){
     POOL_CONTROLLER.getJSONRelayDetails(jsonBuffer); 
     jsonBuffer["now"] = millis();
     String status;
-    serializeJsonPretty(jsonBuffer, status);
+    serializeJson(jsonBuffer, status);
     SERVER.sendHeader("Access-Control-Allow-Origin", "*");
     SERVER.send(200,"application/json",status);
     digitalWrite(LED_BUILTIN, 1);
@@ -192,7 +192,7 @@ void getWifi(){
     POOL_CONTROLLER.getJSONWifiDetails(jsonBuffer);
     jsonBuffer["now"] = millis();
     String status;
-    serializeJsonPretty(jsonBuffer, status);
+    serializeJson(jsonBuffer, status);
     SERVER.sendHeader("Access-Control-Allow-Origin", "*");
     SERVER.send(200,"application/json",status);
     digitalWrite(LED_BUILTIN, 1);
@@ -205,7 +205,7 @@ void getSolar(){
     POOL_CONTROLLER.getJSONSolarDetails(jsonBuffer);
     jsonBuffer["now"] = millis();
     String status;
-    serializeJsonPretty(jsonBuffer, status);
+    serializeJson(jsonBuffer, status);
     SERVER.sendHeader("Access-Control-Allow-Origin", "*");
     SERVER.send(200,"application/json",status);
     digitalWrite(LED_BUILTIN, 1);
@@ -244,7 +244,7 @@ void getGeneral(){
     POOL_CONTROLLER.getJSONGeneralDetails(jsonBuffer); 
     jsonBuffer["now"] = millis();
     String status;
-    serializeJsonPretty(jsonBuffer, status);
+    serializeJson(jsonBuffer, status);
     SERVER.sendHeader("Access-Control-Allow-Origin", "*");
     SERVER.send(200,"application/json",status);
     digitalWrite(LED_BUILTIN, 1);
@@ -319,7 +319,7 @@ void getEverything(){
    
     config["now"] = millis();
     String status;
-    serializeJsonPretty(config, status);
+    serializeJson(config, status);
     SERVER.sendHeader("Access-Control-Allow-Origin", "*");
     SERVER.send(200,"application/json",status);
     digitalWrite(LED_BUILTIN, 1);

@@ -59,7 +59,7 @@
 */
 #define POOL_SOLAR_ON_ROOF_DELTA 1.0 
 #define POOL_SOLAR_OFF_ROOF_DELTA -5.0 
-#define POOL_SOLAR_ON_WATER_DELTA -0.5 //pool turns on only after it hit's -0.5 below setpoint
+#define POOL_SOLAR_ON_WATER_DELTA -2.0 //pool turns on only after it hit's -0.5 below setpoint
 #define POOL_SOLAR_OFF_WATER_DELTA 1.0 //ditto for off only after it hits 1 above
 
 #define POOL_SOLAR_MIN_TEMP 65.0

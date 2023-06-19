@@ -1,5 +1,4 @@
 BRAIN_STACK:
-  * Stop trying NTP requests in manual mode
   * LEFT-OFF:
     - Manual reset mode needs to be enabled (maybe we should just use a pin for this?
     - !!!IMPORTANT!!!: need a current limiting resistor on the shift register output when we add the manual pump override switch
@@ -8,7 +7,9 @@ BRAIN_STACK:
   
  
 TODO:
-  * Add error state logging/clearing
+
+  * Change the update interval to be higher, but leave the temperature update longer (since it requires time)
+  
 
   * Add temp, on/off logging for the relays (with a reasonable history storage) so we can record/return/clear 
     the temp of the pool/air/roof and the amount of on-time for the relays for up to a month.
