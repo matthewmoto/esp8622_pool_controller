@@ -16,8 +16,6 @@ If you're may flavor of insane and decide that you're going to franken-swap your
 
 Put simply, I had most of the stuff for this lying around and pool controllers, by and large, are *obscenely* expensive microcontrollers (>$1000) and mine wasn't broken because anything important was wrong. My high-voltage relays were mint, my transformers were rust-free, etc. Just the aging "brain" of the box decided to give up.
 
-TODO: Insert link to old pool controller picture
-
 ## What this repo/document is *not*
 
 Your pool controller may be different than mine, so I'm going to stick to generalizations and high-level discussion here. This is not an all-inclusive "how-to" guide for replacing your pool controller.
