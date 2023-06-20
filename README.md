@@ -10,7 +10,7 @@ This project involves proximity to mains (240VAC) electricity which has the pote
 
 The code and docs here describe my particular instance of replacing my dead Jandy Aqualink RS pool controller (with wired remotes) with an ESP8266 and a COTS relay board to make a smart pool controller I can control from my phone (or a terminal with curl, shown here).
 
-If you're may flavor of insane and decide that you're going to franken-swap your pool controller with a low-cost ESP8266 microcontroller too, the code in here might be some help if you struggle on the software side of things.
+If you're my flavor of crazy and decide that you're going to franken-swap your pool controller with a low-cost ESP8266 microcontroller too, the code in here might be a good head-start.
 
 ## Why?
 
@@ -20,7 +20,7 @@ Put simply, I had most of the stuff for this lying around and pool controllers, 
 
 Your pool controller may be different than mine, so I'm going to stick to generalizations and high-level discussion here. This is not an all-inclusive "how-to" guide for replacing your pool controller.
 
-If you *do* choose to use my code for something like this and need a hand, feel free to reach out and I'll be happy to answer questions. As of this document being written, the controller has been been operating strong for ~3 years so there are worse projects to use.
+If you *do* choose to use my code for something like this and need a hand, feel free to reach out and I'll be happy to answer questions. As of this document being written, the controller has been been operating strong for ~3 years so I'm confident it's stable enough for regular use.
 
 # Getting Started
 
